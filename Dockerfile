@@ -1,13 +1,46 @@
-ADD file:2a1fc9351afe35698918545b2d466d9805c2e8afcec52f916785ee65bbafeced in /
-CMD ["/bin/sh"]
-ENV LANG=C.UTF-8
-/bin/sh -c ALPINE_GLIBC_BASE_URL="https://github.com/sgerrand/alpine-pkg-glibc/releases/download" &&     ALPINE_GLIBC_PACKAGE_VERSION="2.29-r0" &&     ALPINE_GLIBC_BASE_PACKAGE_FILENAME="glibc-$ALPINE_GLIBC_PACKAGE_VERSION.apk" &&     ALPINE_GLIBC_BIN_PACKAGE_FILENAME="glibc-bin-$ALPINE_GLIBC_PACKAGE_VERSION.apk" &&     ALPINE_GLIBC_I18N_PACKAGE_FILENAME="glibc-i18n-$ALPINE_GLIBC_PACKAGE_VERSION.apk" &&     apk add --no-cache --virtual=.build-dependencies wget ca-certificates &&     echo         "-----BEGIN PUBLIC KEY-----        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApZ2u1KJKUu/fW4A25y9m        y70AGEa/J3Wi5ibNVGNn1gT1r0VfgeWd0pUybS4UmcHdiNzxJPgoWQhV2SSW1JYu        tOqKZF5QSN6X937PTUpNBjUvLtTQ1ve1fp39uf/lEXPpFpOPL88LKnDBgbh7wkCp        m2KzLVGChf83MS0ShL6G9EQIAUxLm99VpgRjwqTQ/KfzGtpke1wqws4au0Ab4qPY        KXvMLSPLUp7cfulWvhmZSegr5AdhNw5KNizPqCJT8ZrGvgHypXyiFvvAH5YRtSsc        Zvo9GI2e2MaZyo9/lvb+LbLEJZKEQckqRj4P26gmASrZEPStwc+yqy1ShHLA0j6m        1QIDAQAB        -----END PUBLIC KEY-----" | sed 's/   */\n/g' > "/etc/apk/keys/sgerrand.rsa.pub" &&     wget         "$ALPINE_GLIBC_BASE_URL/$ALPINE_GLIBC_PACKAGE_VERSION/$ALPINE_GLIBC_BASE_PACKAGE_FILENAME"         "$ALPINE_GLIBC_BASE_URL/$ALPINE_GLIBC_PACKAGE_VERSION/$ALPINE_GLIBC_BIN_PACKAGE_FILENAME"         "$ALPINE_GLIBC_BASE_URL/$ALPINE_GLIBC_PACKAGE_VERSION/$ALPINE_GLIBC_I18N_PACKAGE_FILENAME" &&     apk add --no-cache         "$ALPINE_GLIBC_BASE_PACKAGE_FILENAME"         "$ALPINE_GLIBC_BIN_PACKAGE_FILENAME"         "$ALPINE_GLIBC_I18N_PACKAGE_FILENAME" &&         rm "/etc/apk/keys/sgerrand.rsa.pub" &&     /usr/glibc-compat/bin/localedef --force --inputfile POSIX --charmap UTF-8 "$LANG" || true &&     echo "export LANG=$LANG" > /etc/profile.d/locale.sh &&         apk del glibc-i18n &&         rm "/root/.wget-hsts" &&     apk del .build-dependencies &&     rm         "$ALPINE_GLIBC_BASE_PACKAGE_FILENAME"         "$ALPINE_GLIBC_BIN_PACKAGE_FILENAME"         "$ALPINE_GLIBC_I18N_PACKAGE_FILENAME"
-ENV FACTORIO_VERSION=$FACTORIO_VERSION MANAGER_VERSION=$MANAGER_VERSION ADMIN_PASSWORD=factorio
-VOLUME [/opt/factorio/saves /opt/factorio/mods /opt/factorio/config /security]
-/bin/sh -c apk add --no-cache curl tar unzip nginx openssl xz
-WORKDIR /opt/
-/bin/sh -c curl -s -L -S -k https://www.factorio.com/get-download/$FACTORIO_VERSION/headless/linux64 -o /tmp/factorio_$FACTORIO_VERSION.tar.xz &&     tar Jxf /tmp/factorio_$FACTORIO_VERSION.tar.xz &&     rm /tmp/factorio_$FACTORIO_VERSION.tar.xz &&     curl -s -L -S -k https://github.com/mroote/factorio-server-manager/releases/download/$MANAGER_VERSION/factorio-server-manager-linux.zip --cacert /opt/github.pem -o /tmp/factorio-server-manager-linux_$MANAGER_VERSION.zip &&     unzip -qq /tmp/factorio-server-manager-linux_$MANAGER_VERSION.zip &&     rm /tmp/factorio-server-manager-linux_$MANAGER_VERSION.zip &&     mkdir -p /run/nginx &&     chown nginx:root /var/lib/nginx
-COPY file:35a6c912e61e75dd51669a685e3e9835e4519504eb394204b7646c99d1d9d74e in /opt/init.sh
-COPY file:898a2504505d28350670e646868a9f624dd9b7656d2ebdd8ba9e676d0051d3b1 in /etc/nginx/nginx.conf
-EXPOSE 34190-34200/udp 443/tcp 80/tcp
-ENTRYPOINT ["/opt/init.sh"]
+FROM frolvlad/alpine-glibc:alpine-3.9
+
+LABEL maintainer="https://github.com/factoriotools/factorio-docker"
+
+ARG USER=factorio
+ARG GROUP=factorio
+ARG PUID=845
+ARG PGID=845
+
+ENV PORT=34197 \
+    RCON_PORT=27015 \
+    VERSION=0.17.78 \
+    SHA1=84bc37a586571b4358559dff5f8d95ef7305f7f7 \
+    SAVES=/factorio/saves \
+    CONFIG=/factorio/config \
+    MODS=/factorio/mods \
+    SCENARIOS=/factorio/scenarios \
+    SCRIPTOUTPUT=/factorio/script-output \
+    PUID="$PUID" \
+    PGID="$PGID"
+
+RUN set -ox pipefail \
+    && archive="/tmp/factorio_headless_x64_$VERSION.tar.xz" \
+    && mkdir -p /opt /factorio \
+    && apk add --update --no-cache --no-progress bash binutils curl file gettext jq libintl pwgen shadow su-exec \
+    && curl -sSL "https://www.factorio.com/get-download/$VERSION/headless/linux64" -o "$archive" \
+    && echo "$SHA1  $archive" | sha1sum -c \
+    || (sha1sum "$archive" && file "$archive" && exit 1) \
+    && tar xf "$archive" --directory /opt \
+    && chmod ugo=rwx /opt/factorio \
+    && rm "$archive" \
+    && ln -s "$SAVES" /opt/factorio/saves \
+    && ln -s "$MODS" /opt/factorio/mods \
+    && ln -s "$SCENARIOS" /opt/factorio/scenarios \
+    && ln -s "$SCRIPTOUTPUT" /opt/factorio/script-output \
+    && addgroup -g "$PGID" -S "$GROUP" \
+    && adduser -u "$PUID" -G "$GROUP" -s /bin/sh -SDH "$USER" \
+    && chown -R "$USER":"$GROUP" /opt/factorio /factorio
+
+VOLUME /factorio
+
+EXPOSE $PORT/udp $RCON_PORT/tcp
+
+COPY files/ /
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
